@@ -62,17 +62,39 @@ final class DownloadManager: NSObject, ObservableObject {
     func download(_ media: MediaItem, from webView: WKWebView) {
         let item = DownloadItem(name: media.fileName, kind: media.kind)
         items.insert(item, at: 0)
-        if media.isHLS {
-            downloadHLS(media, item: item, webView: webView)
-        } else {
-            var request = URLRequest(url: media.url)
-            if let page = media.pageURL {
-                request.setValue(page.absoluteString, forHTTPHeaderField: "Referer")
-            }
-            webView.startDownload(using: request) { [weak self] download in
-                self?.attach(download, to: item)
+        item.task = Task { [weak self] in
+            let context = await Self.context(for: media, in: webView)
+            do {
+                let url: URL
+                if media.isHLS {
+                    url = try await HLSDownloader(context: context)
+                        .download(playlist: media.url, to: Self.folder, baseName: media.fileName) { [weak item] value in
+                            item?.progress = value
+                        }
+                } else {
+                    let loader = FileDownloader { [weak item] value in
+                        Task { @MainActor in item?.progress = value }
+                    }
+                    url = try await loader.download(context.request(for: media.url),
+                                                    to: Self.folder, suggestedName: media.fileName)
+                }
+                item.name = url.lastPathComponent
+                self?.finish(item, at: url)
+            } catch is CancellationError {
+                item.state = .failed("Cancelada")
+            } catch let error as URLError where error.code == .cancelled {
+                item.state = .failed("Cancelada")
+            } catch {
+                item.state = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// Referer de la página, User-Agent real y cookies del WKWebView.
+    private static func context(for media: MediaItem, in webView: WKWebView) async -> RequestContext {
+        let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+        let userAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String
+        return RequestContext(referer: media.pageURL ?? webView.url, userAgent: userAgent, cookies: cookies)
     }
 
     /// Descargas iniciadas por la propia web (enlace a un archivo).
@@ -89,26 +111,6 @@ final class DownloadManager: NSObject, ObservableObject {
         item.observation = download.progress.observe(\.fractionCompleted) { @Sendable [weak item] progress, _ in
             let value = progress.fractionCompleted
             Task { @MainActor in item?.progress = value }
-        }
-    }
-
-    private func downloadHLS(_ media: MediaItem, item: DownloadItem, webView: WKWebView) {
-        item.task = Task { [weak self] in
-            let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-            let userAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String
-            let loader = HLSDownloader(referer: media.pageURL, cookies: cookies, userAgent: userAgent)
-            do {
-                let url = try await loader.download(playlist: media.url, to: Self.folder,
-                                                    baseName: media.fileName) { [weak item] value in
-                    item?.progress = value
-                }
-                item.name = url.lastPathComponent
-                self?.finish(item, at: url)
-            } catch is CancellationError {
-                item.state = .failed("Cancelada")
-            } catch {
-                item.state = .failed(error.localizedDescription)
-            }
         }
     }
 

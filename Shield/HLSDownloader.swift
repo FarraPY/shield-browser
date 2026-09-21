@@ -22,24 +22,14 @@ final class HLSDownloader: @unchecked Sendable {
     }
 
     private let session: URLSession
-    private let cookies: [HTTPCookie]
-    private let headers: [String: String]
+    private let context: RequestContext
 
-    init(referer: URL?, cookies: [HTTPCookie], userAgent: String?) {
+    init(context: RequestContext) {
         let config = URLSessionConfiguration.default
         config.httpShouldSetCookies = false
         config.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: config)
-        self.cookies = cookies
-        var headers: [String: String] = [:]
-        if let referer {
-            headers["Referer"] = referer.absoluteString
-            if let scheme = referer.scheme, let host = referer.host() {
-                headers["Origin"] = "\(scheme)://\(host)"
-            }
-        }
-        if let userAgent { headers["User-Agent"] = userAgent }
-        self.headers = headers
+        self.context = context
     }
 
     func download(playlist: URL, to folder: URL, baseName: String,
@@ -97,16 +87,7 @@ final class HLSDownloader: @unchecked Sendable {
 
     private func get(_ url: URL) async throws -> Data {
         try Task.checkCancellation()
-        var request = URLRequest(url: url, timeoutInterval: 60)
-        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
-        let host = url.host()?.lowercased() ?? ""
-        let matching = cookies.filter { cookie in
-            let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            return host == domain || host.hasSuffix("." + domain)
-        }
-        for (field, value) in HTTPCookie.requestHeaderFields(with: matching) {
-            request.setValue(value, forHTTPHeaderField: field)
-        }
+        let request = context.request(for: url, cors: true)
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw HLSError(message: "El servidor respondió \(http.statusCode)")
