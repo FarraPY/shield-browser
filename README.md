@@ -1,0 +1,83 @@
+# Shield — navegador para iPhone sin anuncios (tipo Brave)
+
+Navegador para iOS 27 con bloqueo de anuncios y rastreadores integrado,
+compilado **en la nube** (no hace falta Mac) e instalado desde **Windows**.
+
+## Qué hace
+
+| Función | Cómo |
+|---|---|
+| Bloqueo de anuncios y rastreadores a nivel de red | `WKContentRuleList` (el mismo motor que Safari y Firefox iOS) con ~115.000 reglas de EasyList, EasyPrivacy, EasyList Español y Peter Lowe |
+| Ocultación de huecos/banners | Reglas cosméticas `css-display-none` (~6.800 grupos de selectores) |
+| Anuncios de YouTube | Script inyectado que elimina `adPlacements` de las respuestas del reproductor y salta/silencia cualquier anuncio residual |
+| Pop-ups | `javaScriptCanOpenWindowsAutomatically = false` |
+| Escudos por sitio | Botón del escudo → desactivar en un sitio concreto (como el león de Brave) |
+| HTTPS | `upgradeKnownHostsToHTTPS` |
+| Pestañas y pestañas privadas | Las privadas usan almacenamiento no persistente |
+| Motor de búsqueda | DuckDuckGo (por defecto), Brave Search, Google, Startpage |
+| Listas actualizadas | GitHub Actions recompila cada lunes con las listas más recientes |
+
+## Investigación: por qué esta arquitectura
+
+1. **En iOS todos los navegadores usan WebKit.** Brave, Chrome y Firefox para iPhone usan
+   `WKWebView` (en la UE se permiten otros motores, pero requiere autorización especial de
+   Apple). Por eso el bloqueo se hace con la API nativa `WKContentRuleList`: WebKit descarta
+   las peticiones antes de que salgan del iPhone, sin coste de rendimiento.
+2. **Límite de reglas:** WebKit admite hasta 150.000 reglas por lista. `tools/convert_filters.py`
+   convierte las listas (sintaxis Adblock Plus) al JSON de WebKit y las divide en trozos de 40.000.
+   Si WebKit rechazara alguna regla, la app la localiza por bisección y compila el resto.
+3. **Compilar sin Mac:** una app iOS necesita Xcode, que sólo funciona en macOS. GitHub Actions
+   ofrece la imagen `xcode-27` (macOS 27 + Xcode 27 + SDK `iphoneos27.0`). El proyecto Xcode se
+   genera con XcodeGen a partir de `project.yml`.
+4. **Instalar sin Mac:** [Sideloadly](https://sideloadly.io) (Windows) firma la IPA con tu Apple ID
+   gratuito y la instala por cable. Confirmado compatible con iOS 27.
+   Con Apple ID gratuito la app caduca a los **7 días** (Sideloadly puede refrescarla
+   automáticamente); con la cuenta de desarrollador de Apple (99 $/año) dura 1 año y puedes usar TestFlight.
+
+Límite honesto: ningún bloqueador de iOS basado en WebKit bloquea el 100 % de los anuncios.
+Los anuncios "nativos" servidos desde el mismo dominio que el contenido, o los de YouTube si
+cambia su formato, pueden requerir actualizar reglas/scripts.
+
+## Probarlo en tu iPhone (Windows)
+
+### 1. Preparar el iPhone (una sola vez)
+- Actualizado a iOS 27.
+- **Ajustes → Privacidad y seguridad → Modo de desarrollador → Activar** (se reinicia).
+  Si no aparece la opción, aparecerá después de instalar la app la primera vez.
+
+### 2. Preparar el PC (una sola vez)
+- Instala **iTunes** (versión web de apple.com, no la de Microsoft Store) o la app
+  **Dispositivos Apple** de Microsoft Store, para que Windows reconozca el iPhone.
+- Descarga e instala **Sideloadly** desde https://sideloadly.io.
+
+### 3. Obtener la IPA
+Cada `git push` a `main` compila la app en GitHub Actions y publica `Shield.ipa` en la
+pestaña **Releases** del repositorio (también queda como *artifact* del workflow).
+
+### 4. Instalar
+1. Conecta el iPhone por USB y pulsa **Confiar** en el iPhone.
+2. Abre Sideloadly, arrastra `Shield.ipa`, escribe tu Apple ID y pulsa **Start**.
+   (Tu contraseña la introduces tú en Sideloadly; se usa sólo para firmar con Apple.)
+3. En el iPhone: **Ajustes → General → VPN y gestión de dispositivos →** tu Apple ID → **Confiar**.
+4. Abre **Shield**. La primera vez compila los filtros (unos segundos); luego queda en caché.
+
+## Desarrollo
+
+```
+tools/convert_filters.py   # listas EasyList → JSON de WebKit
+project.yml                # definición del proyecto (XcodeGen)
+Shield/
+  ShieldApp.swift          # punto de entrada
+  ContentBlocker.swift     # compila y cachea las WKContentRuleList
+  BrowserTab.swift         # WKWebView + escudos por sitio + navegación
+  TabManager.swift         # pestañas normales / privadas
+  Settings.swift           # ajustes, motores de búsqueda, parser de la barra
+  Views/                   # SwiftUI
+  Resources/shield.js      # script anti-anuncios (YouTube, iframes)
+.github/workflows/build.yml
+```
+
+Probar el conversor en local: `python tools/convert_filters.py` (requiere `pip install soupsieve beautifulsoup4`).
+
+Si algún día tienes un Mac: `brew install xcodegen && xcodegen generate && open Shield.xcodeproj`
+y ejecútalo directamente en el iPhone desde Xcode.

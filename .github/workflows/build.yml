@@ -1,0 +1,59 @@
+name: Build iOS app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"   # cada lunes: recompila con las listas de filtros más recientes
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: xcode-27   # macOS 27 + Xcode 27 + SDK de iOS 27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar y convertir listas de filtros
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet soupsieve beautifulsoup4
+          .venv/bin/python tools/convert_filters.py
+
+      - name: Generar proyecto Xcode
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Compilar (sin firmar)
+        run: |
+          xcodebuild -version
+          xcodebuild -project Shield.xcodeproj -target Shield -configuration Release \
+            -sdk iphoneos SYMROOT="$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build | tee build.log | grep -E "error:|warning: .*Shield|BUILD" || true
+          test -d build/Release-iphoneos/Shield.app
+
+      - name: Empaquetar IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/Shield.app Payload/
+          zip -qry Shield.ipa Payload
+          ls -lh Shield.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shield-ipa
+          path: Shield.ipa
+
+      - name: Publicar release descargable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" Shield.ipa \
+            --title "Shield build ${{ github.run_number }}" \
+            --notes "IPA sin firmar. Instálala con Sideloadly (ver README)." --latest

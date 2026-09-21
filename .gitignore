@@ -1,0 +1,9 @@
+# Generados
+Shield/Resources/Blocklists/
+tools/.cache/
+*.xcodeproj/
+build/
+Payload/
+*.ipa
+.venv/
+.DS_Store
