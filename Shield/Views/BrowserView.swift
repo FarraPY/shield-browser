@@ -20,10 +20,14 @@ private struct TabContent: View {
     @State private var showTabs = false
     @State private var showSettings = false
     @State private var showShieldPanel = false
+    @State private var showMedia = false
+    @State private var showDownloads = false
+    @ObservedObject private var downloads = DownloadManager.shared
     @FocusState private var addressFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
             ZStack(alignment: .top) {
                 WebViewContainer(webView: tab.webView)
                     .ignoresSafeArea(edges: .top)
@@ -37,11 +41,18 @@ private struct TabContent: View {
                         .tint(.orange)
                 }
             }
+            if let popup = tab.blockedPopup {
+                popupBanner(popup)
+            }
+            }
+            .animation(.easeInOut(duration: 0.2), value: tab.blockedPopup)
             bottomBar
         }
         .background(tab.isPrivate ? Color.purple.opacity(0.15) : Color(.systemBackground))
         .sheet(isPresented: $showTabs) { TabsView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showMedia) { MediaView(tab: tab) }
+        .sheet(isPresented: $showDownloads) { NavigationStack { DownloadsView() } }
         .sheet(isPresented: $showShieldPanel) {
             ShieldPanel(tab: tab).presentationDetents([.medium])
         }
@@ -104,13 +115,22 @@ private struct TabContent: View {
                 HStack {
                     toolbarButton("chevron.backward", enabled: tab.canGoBack) { tab.goBack() }
                     toolbarButton("chevron.forward", enabled: tab.canGoForward) { tab.goForward() }
-                    if let url = tab.url {
-                        ShareLink(item: url) {
-                            Image(systemName: "square.and.arrow.up").frame(maxWidth: .infinity)
-                        }
-                    } else {
-                        toolbarButton("square.and.arrow.up", enabled: false) {}
+                    Button { showMedia = true } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .overlay(alignment: .topTrailing) {
+                                if tab.videoCount > 0 || downloads.activeCount > 0 {
+                                    Text("\(downloads.activeCount > 0 ? downloads.activeCount : tab.videoCount)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .background(downloads.activeCount > 0 ? Color.blue : Color.orange, in: Capsule())
+                                        .offset(x: 8, y: -6)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                     }
+                    .disabled(tab.url == nil)
+                    .accessibilityLabel("Descargar vídeos e imágenes")
                     Button { showTabs = true } label: {
                         Text("\(tabs.tabs.count)")
                             .font(.footnote.bold())
@@ -124,6 +144,12 @@ private struct TabContent: View {
                             Label("Nueva pestaña privada", systemImage: "eyeglasses")
                         }
                         Divider()
+                        if let url = tab.url {
+                            ShareLink(item: url) { Label("Compartir", systemImage: "square.and.arrow.up") }
+                        }
+                        Button { showDownloads = true } label: {
+                            Label("Descargas", systemImage: "tray.and.arrow.down")
+                        }
                         Button { showSettings = true } label: { Label("Ajustes", systemImage: "gearshape") }
                     } label: {
                         Image(systemName: "ellipsis.circle").frame(maxWidth: .infinity)
@@ -136,6 +162,26 @@ private struct TabContent: View {
         .padding(.top, 8)
         .padding(.bottom, 4)
         .background(.bar)
+    }
+
+    private func popupBanner(_ url: URL) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Pop-up bloqueado").font(.footnote.bold())
+                Text(url.host() ?? url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Abrir") { tab.openBlockedPopup() }
+                .font(.footnote.bold())
+            Button { tab.blockedPopup = nil } label: { Image(systemName: "xmark") }
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private var displayHost: String {
@@ -175,6 +221,7 @@ private struct ShieldPanel: View {
                     }
                 }
                 Section("En esta página") {
+                    LabeledContent("Pop-ups y capas trampa bloqueados", value: "\(tab.popupsBlocked)")
                     LabeledContent("Anuncios eliminados por script", value: "\(tab.cosmeticBlocked)")
                     LabeledContent("Reglas de bloqueo cargadas", value: blocker.ruleCount.formatted())
                 }

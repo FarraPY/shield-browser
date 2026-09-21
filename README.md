@@ -10,7 +10,9 @@ compilado **en la nube** (no hace falta Mac) e instalado desde **Windows**.
 | Bloqueo de anuncios y rastreadores a nivel de red | `WKContentRuleList` (el mismo motor que Safari y Firefox iOS) con ~115.000 reglas de EasyList, EasyPrivacy, EasyList Español y Peter Lowe |
 | Ocultación de huecos/banners | Reglas cosméticas `css-display-none` (~6.800 grupos de selectores) |
 | Anuncios de YouTube | Script inyectado que elimina `adPlacements` de las respuestas del reproductor y salta/silencia cualquier anuncio residual |
-| Pop-ups | `javaScriptCanOpenWindowsAutomatically = false` |
+| Pop-ups y pop-unders | `window.open` y enlaces `_blank` sólo se abren si tocaste un enlace visible; si no, aviso "Pop-up bloqueado · Abrir" |
+| Capas trampa invisibles | Enlaces/capas transparentes sobre imágenes que "roban" el primer toque: se desactivan y el toque pasa a la imagen de debajo |
+| Descargar cualquier vídeo o imagen | Botón ⬇︎ de la barra: detecta `<video>`, `<img>`, iframes de reproductores, listas HLS `.m3u8` (con AES-128) y peticiones de red de vídeo. Guarda en Fotos y en Archivos → Shield |
 | Escudos por sitio | Botón del escudo → desactivar en un sitio concreto (como el león de Brave) |
 | HTTPS | `upgradeKnownHostsToHTTPS` |
 | Pestañas y pestañas privadas | Las privadas usan almacenamiento no persistente |

@@ -15,12 +15,17 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     @Published var canGoForward = false
     @Published var cosmeticBlocked = 0
     @Published private(set) var shieldsActive = true
+    @Published var media: [MediaItem] = []
+    @Published var blockedPopup: URL?
+    @Published var popupsBlocked = 0
 
     /// Lo asigna TabManager para abrir ventanas nuevas como pestañas.
     var onOpenInNewTab: ((URLRequest) -> Void)?
 
     private var observations: [NSKeyValueObservation] = []
     private var appliedShields: Bool?
+    private var approvedPopups: [String: Date] = [:]
+    private var popupBannerTask: Task<Void, Never>?
 
     init(isPrivate: Bool) {
         self.isPrivate = isPrivate
@@ -126,10 +131,64 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     }
 
     fileprivate func didReceive(_ message: WKScriptMessage) {
-        if let body = message.body as? [String: Any], let hidden = body["hidden"] as? Int {
+        guard let body = message.body as? [String: Any] else { return }
+        if let hidden = body["hidden"] as? Int {
             cosmeticBlocked = max(cosmeticBlocked, hidden)
         }
+        if let url = body["allowPopup"] as? String {
+            approvedPopups[url] = Date()
+        }
+        if let url = (body["popupBlocked"] as? String).flatMap({ URL(string: $0) }) {
+            noteBlockedPopup(url)
+        }
+        if let list = body["media"] as? [[String: Any]] {
+            addMedia(list.compactMap(MediaItem.init))
+        }
     }
+
+    // MARK: - Pop-ups
+
+    private func isApprovedPopup(_ url: URL) -> Bool {
+        approvedPopups = approvedPopups.filter { Date().timeIntervalSince($0.value) < 5 }
+        return approvedPopups.removeValue(forKey: url.absoluteString) != nil
+    }
+
+    private func noteBlockedPopup(_ url: URL) {
+        popupsBlocked += 1
+        blockedPopup = url
+        popupBannerTask?.cancel()
+        popupBannerTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if !Task.isCancelled { self?.blockedPopup = nil }
+        }
+    }
+
+    /// El usuario decide abrir un pop-up bloqueado desde el aviso.
+    func openBlockedPopup() {
+        guard let url = blockedPopup, ["http", "https"].contains(url.scheme ?? "") else { return }
+        blockedPopup = nil
+        onOpenInNewTab?(URLRequest(url: url))
+    }
+
+    // MARK: - Contenido multimedia
+
+    private func addMedia(_ items: [MediaItem]) {
+        var known = Set(media.map(\.id))
+        var added: [MediaItem] = []
+        for item in items where !known.contains(item.id) {
+            known.insert(item.id)
+            added.append(item)
+        }
+        guard !added.isEmpty else { return }
+        media = Array((media + added).prefix(400))
+    }
+
+    /// Pide a la página (y a sus iframes) que vuelva a buscar vídeos e imágenes.
+    func scanMedia() {
+        webView.evaluateJavaScript("window.__shieldScan && window.__shieldScan(); 0", completionHandler: nil)
+    }
+
+    var videoCount: Int { media.filter { $0.kind != .image }.count }
 }
 
 // MARK: - WKNavigationDelegate
@@ -153,6 +212,27 @@ extension BrowserTab: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         cosmeticBlocked = 0
+        popupsBlocked = 0
+        media = []
+    }
+
+    /// Enlaces a archivos que la web no puede mostrar (zip, pdf forzado, etc.) → descarga.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        guard navigationResponse.isForMainFrame else { return .allow }
+        if let http = navigationResponse.response as? HTTPURLResponse,
+           let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+           disposition.lowercased().hasPrefix("attachment") {
+            return .download
+        }
+        return navigationResponse.canShowMIMEType ? .allow : .download
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        DownloadManager.shared.adopt(download, name: navigationResponse.response.suggestedFilename)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        DownloadManager.shared.adopt(download, name: navigationAction.request.url?.lastPathComponent)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -163,16 +243,28 @@ extension BrowserTab: WKNavigationDelegate {
 // MARK: - WKUIDelegate
 
 extension BrowserTab: WKUIDelegate {
-    /// Enlaces con target="_blank": se abren en la misma pestaña; los pop-ups
-    /// automáticos ya están bloqueados por javaScriptCanOpenWindowsAutomatically.
+    /// Ventanas nuevas (target="_blank" / window.open). Sólo se abren como
+    /// pestaña si el usuario tocó de verdad un enlace visible; el resto son
+    /// pop-ups/pop-unders de anuncios y se bloquean con un aviso para abrirlos.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard navigationAction.targetFrame == nil else { return nil }
-        if navigationAction.navigationType == .linkActivated {
-            webView.load(navigationAction.request)
-        } else {
-            // window.open() tras un toque del usuario (p. ej. login): nueva pestaña
-            onOpenInNewTab?(navigationAction.request)
+        guard navigationAction.targetFrame == nil, let url = navigationAction.request.url else { return nil }
+        let request = navigationAction.request
+        // Permitido: shield.js lo aprobó (toque real sobre un enlace visible) o es del mismo sitio.
+        if isApprovedPopup(url) ||
+            (navigationAction.navigationType == .linkActivated && URLBuilder.sameSite(url, webView.url)) {
+            onOpenInNewTab?(request)
+            return nil
+        }
+        // El permiso del script puede llegar unos milisegundos después que la petición.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self else { return }
+            if self.isApprovedPopup(url) {
+                self.onOpenInNewTab?(request)
+            } else if self.blockedPopup != url {
+                self.noteBlockedPopup(url)
+            }
         }
         return nil
     }

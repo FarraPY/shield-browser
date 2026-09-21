@@ -17,6 +17,254 @@
 
   var host = location.hostname;
 
+  function post(msg) {
+    try { window.webkit.messageHandlers.shield.postMessage(msg); } catch (e) {}
+  }
+  function abs(u) {
+    try { return new URL(String(u), location.href).href; } catch (e) { return ''; }
+  }
+  function baseDomain(h) {
+    h = (h || '').toLowerCase().replace(/^www\./, '');
+    var p = h.split('.');
+    if (p.length <= 2) return h;
+    var twoLevel = /^(co|com|net|org|gov|gob|edu|ac|nic|or|ne|go|mil)$/.test(p[p.length - 2]) &&
+                   p[p.length - 1].length === 2;
+    return p.slice(twoLevel ? -3 : -2).join('.');
+  }
+  function sameSite(u) {
+    try { return baseDomain(new URL(u, location.href).hostname) === baseDomain(location.hostname); }
+    catch (e) { return false; }
+  }
+
+  // ---------- Pop-ups, pop-unders y capas invisibles ----------
+  // Truco típico: un enlace/capa transparente encima de la página que "roba"
+  // el primer toque para abrir un anuncio. Lo detectamos, lo desactivamos y
+  // reenviamos el toque al elemento real que hay debajo (p. ej. la imagen).
+  var lastTap = { target: null, link: null, x: 0, y: 0, time: 0 };
+  function onTap(e) {
+    var t = e.touches && e.touches[0] ? e.touches[0] : e;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    lastTap = { target: e.target, link: a ? a.href : null, x: t.clientX, y: t.clientY, time: Date.now() };
+  }
+  window.addEventListener('touchstart', onTap, { capture: true, passive: true });
+  window.addEventListener('pointerdown', onTap, true);
+
+  function recentTap() { return Date.now() - lastTap.time < 1500; }
+
+  function isOverlay(el) {
+    if (!el || el === document.body || el === document.documentElement || !el.getBoundingClientRect) return false;
+    if (/^(IMG|VIDEO|AUDIO|PICTURE|SVG|CANVAS|IFRAME|INPUT|BUTTON|TEXTAREA|SELECT|LABEL)$/i.test(el.tagName)) return false;
+    var r = el.getBoundingClientRect();
+    var cs = getComputedStyle(el);
+    var big = r.width * r.height >= 0.35 * innerWidth * innerHeight;
+    var positioned = cs.position === 'fixed' || cs.position === 'absolute';
+    var invisible = parseFloat(cs.opacity) < 0.1 || cs.visibility === 'hidden' ||
+      (!el.textContent.trim() && !el.querySelector('img,video,picture,svg,canvas') &&
+       cs.backgroundImage === 'none' && coversMedia(el, r));
+    return (big && positioned && (el.tagName === 'A' || !el.textContent.trim())) || invisible;
+  }
+
+  // ¿Hay una imagen/vídeo justo debajo del elemento? (capa transparente encima)
+  function coversMedia(el, r) {
+    if (!document.elementsFromPoint || !r.width || !r.height) return false;
+    var list = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    for (var i = 0; i < list.length; i++) {
+      var b = list[i];
+      if (b === el || el.contains(b)) continue;
+      if (/^(IMG|VIDEO|PICTURE|CANVAS)$/i.test(b.tagName)) return true;
+      return b.tagName === 'A' && !!b.querySelector('img,video');
+    }
+    return false;
+  }
+
+  // Desactiva la capa que recibió el toque y reenvía el clic a lo que hay debajo.
+  function passThrough() {
+    if (!recentTap() || !lastTap.target) return;
+    var t = lastTap.target;
+    var layer = (t.closest && t.closest('a[href]')) || t;
+    if (!isOverlay(layer)) return;
+    layer.style.setProperty('pointer-events', 'none', 'important');
+    var x = lastTap.x, y = lastTap.y;
+    lastTap.time = 0;
+    setTimeout(function () {
+      var below = document.elementFromPoint(x, y);
+      if (below && below !== layer && !layer.contains(below)) below.click();
+    }, 0);
+  }
+
+  function popupAllowed(url) {
+    if (!url || url === 'about:blank') return false;
+    if (sameSite(url)) return true;
+    // enlace externo que el usuario tocó de verdad (y no es una capa invisible)
+    return recentTap() && lastTap.link === url && !!lastTap.target && !!lastTap.target.closest &&
+      !isOverlay(lastTap.target.closest('a[href]'));
+  }
+  function blockPopup(url) {
+    post({ popupBlocked: url || 'about:blank' });
+    passThrough();
+  }
+  function fakeWindow() {
+    var noop = function () {};
+    var w = { closed: false, opener: window, focus: noop, blur: noop, postMessage: noop,
+      moveTo: noop, resizeTo: noop,
+      document: { write: noop, writeln: noop, open: noop, close: noop, body: null },
+      location: { href: 'about:blank', assign: noop, replace: noop } };
+    w.close = function () { w.closed = true; };
+    w.window = w; w.self = w;
+    return w;
+  }
+
+  var nativeOpen = window.open;
+  window.open = function (url) {
+    var u = url ? abs(url) : '';
+    if (popupAllowed(u)) {
+      post({ allowPopup: u });
+      return nativeOpen.apply(window, arguments);
+    }
+    blockPopup(u);
+    return fakeWindow();   // el script cree que lo consiguió y no reintenta
+  };
+  window.open.toString = function () { return 'function open() { [native code] }'; };
+
+  function blankAnchor(a) {
+    return a && a.tagName === 'A' && a.href && /^_(blank|new)$|^[^_]/.test(a.target || '_self');
+  }
+  // Clics sintéticos sobre enlaces (a.click() / dispatchEvent) que abren anuncios
+  var nativeClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    if (blankAnchor(this) && !popupAllowed(this.href)) { blockPopup(this.href); return; }
+    if (blankAnchor(this)) post({ allowPopup: this.href });
+    return nativeClick.apply(this, arguments);
+  };
+  var nativeDispatch = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function (ev) {
+    if (ev && ev.type === 'click' && blankAnchor(this) && !popupAllowed(this.href)) {
+      blockPopup(this.href);
+      return false;
+    }
+    return nativeDispatch.apply(this, arguments);
+  };
+  // Clics reales del usuario
+  window.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a || /^(javascript|#)/i.test(a.getAttribute('href') || '')) return;
+    if (!sameSite(a.href) && isOverlay(a)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      blockPopup(a.href);
+      return;
+    }
+    if (blankAnchor(a)) post({ allowPopup: a.href });
+  }, true);
+
+  // ---------- Detector de vídeos, audios e imágenes ----------
+  var VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|m3u8)(\?|#|$)/i;
+  var AUDIO_EXT = /\.(mp3|m4a|aac|ogg|opus|wav|flac)(\?|#|$)/i;
+  var IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif|heic|bmp)(\?|#|$)/i;
+  var seen = {};
+  var queue = [];
+  var flushTimer = null;
+  function addMedia(kind, url, extra) {
+    url = abs(url);
+    if (!url || /^(blob|data|about|javascript):/i.test(url)) return;
+    var key = kind + url;
+    if (seen[key]) return;
+    seen[key] = 1;
+    var item = { kind: kind, url: url, page: location.href, hls: /\.m3u8(\?|#|$)/i.test(url) };
+    if (extra) for (var k in extra) item[k] = extra[k];
+    queue.push(item);
+    if (!flushTimer) flushTimer = setTimeout(function () {
+      flushTimer = null;
+      if (queue.length) post({ media: queue.splice(0, queue.length) });
+    }, 400);
+  }
+  function kindForURL(u) {
+    if (VIDEO_EXT.test(u)) return 'video';
+    if (AUDIO_EXT.test(u)) return 'audio';
+    if (IMAGE_EXT.test(u)) return 'image';
+    return null;
+  }
+  try { performance.setResourceTimingBufferSize(5000); } catch (e) {}
+
+  function scan() {
+    var i, j, list;
+    list = document.querySelectorAll('video, audio');
+    for (i = 0; i < list.length; i++) {
+      var v = list[i];
+      var kind = v.tagName === 'AUDIO' ? 'audio' : 'video';
+      var extra = { poster: v.poster ? abs(v.poster) : null };
+      addMedia(kind, v.currentSrc, extra);
+      addMedia(kind, v.getAttribute('src'), extra);
+      var sources = v.querySelectorAll('source[src]');
+      for (j = 0; j < sources.length; j++) addMedia(kind, sources[j].getAttribute('src'), extra);
+      if (v.poster) addMedia('image', v.poster);
+    }
+    list = document.images;
+    for (i = 0; i < list.length; i++) {
+      var img = list[i];
+      if (img.naturalWidth >= 120 && img.naturalHeight >= 120) {
+        addMedia('image', img.currentSrc || img.src, { width: img.naturalWidth, height: img.naturalHeight });
+      }
+      var lazy = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-full');
+      if (lazy) addMedia('image', lazy);
+    }
+    list = document.querySelectorAll('a[href]');
+    for (i = 0; i < list.length; i++) {
+      var k = kindForURL(list[i].href);
+      if (k) addMedia(k, list[i].href);
+    }
+    list = document.querySelectorAll('meta[property^="og:video"], meta[property="og:image"], meta[name="twitter:player:stream"]');
+    for (i = 0; i < list.length; i++) {
+      var c = list[i].getAttribute('content');
+      if (!c) continue;
+      addMedia(/image/.test(list[i].getAttribute('property') || '') ? 'image' : (kindForURL(c) || 'video'), c);
+    }
+    var entries = performance.getEntriesByType ? performance.getEntriesByType('resource') : [];
+    for (i = 0; i < entries.length; i++) {
+      var n = entries[i].name;
+      var kk = kindForURL(n);
+      if (kk === 'video' || kk === 'audio') addMedia(kk, n);
+    }
+    // reenviar el escaneo a los iframes (reproductores incrustados)
+    for (i = 0; i < window.frames.length; i++) {
+      try { window.frames[i].postMessage({ __shieldScan: 1 }, '*'); } catch (e) {}
+    }
+  }
+  window.__shieldScan = scan;
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.__shieldScan) scan();
+  });
+  ['play', 'loadedmetadata', 'loadeddata'].forEach(function (type) {
+    document.addEventListener(type, function () { scan(); }, true);
+  });
+  window.addEventListener('load', function () { scan(); });
+
+  // Listas HLS (.m3u8) cargadas por reproductores JS sin extensión reconocible
+  function checkType(url, type) {
+    if (type && /mpegurl/i.test(type)) addMedia('video', url, { hls: true });
+    else if (type && /^video\//i.test(type)) addMedia('video', url);
+  }
+  var nativeXHROpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    var xhr = this;
+    try {
+      xhr.addEventListener('load', function () {
+        try { checkType(abs(url), xhr.getResponseHeader('content-type')); } catch (e) {}
+      });
+    } catch (e) {}
+    return nativeXHROpen.apply(this, arguments);
+  };
+  if (window.fetch) {
+    var nativeFetch = window.fetch;
+    window.fetch = function (input) {
+      var p = nativeFetch.apply(this, arguments);
+      p.then(function (res) {
+        try { checkType(res.url, res.headers.get('content-type')); } catch (e) {}
+      }, function () {});
+      return p;
+    };
+  }
+
   // ---------- YouTube ----------
   if (/(^|\.)youtube\.com$/.test(host) || /(^|\.)youtube-nocookie\.com$/.test(host)) {
     var AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];

@@ -8,6 +8,7 @@ struct SettingsView: View {
 
     @AppStorage(ShieldSettings.searchEngineKey) private var engine = SearchEngine.duckDuckGo.rawValue
     @AppStorage(ShieldSettings.globalShieldsKey) private var globalShields = true
+    @AppStorage(DownloadManager.autoSaveKey) private var autoSaveToPhotos = true
     @State private var cleared = false
 
     var body: some View {
@@ -33,6 +34,14 @@ struct SettingsView: View {
                     Text("Escudos")
                 } footer: {
                     Text("Listas: EasyList, EasyPrivacy, EasyList Español, Peter Lowe. Se actualizan en cada compilación de la app.")
+                }
+                Section {
+                    Toggle("Guardar descargas en Fotos", isOn: $autoSaveToPhotos).tint(.orange)
+                    NavigationLink("Ver descargas") { DownloadsView() }
+                } header: {
+                    Text("Descargas")
+                } footer: {
+                    Text("Todo se guarda también en Archivos → En mi iPhone → Shield. Los vídeos HLS en formato .ts no se pueden añadir a Fotos; ábrelos con VLC.")
                 }
                 Section("Privacidad") {
                     Button("Borrar historial, cookies y caché", role: .destructive) {

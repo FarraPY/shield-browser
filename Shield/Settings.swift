@@ -84,4 +84,20 @@ enum URLBuilder {
         }
         return ShieldSettings.searchEngine.searchURL(text)
     }
+
+    /// Dominio registrable aproximado: "img.foro.com.ar" → "foro.com.ar".
+    static func baseDomain(_ host: String?) -> String {
+        var h = (host ?? "").lowercased()
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        let parts = h.split(separator: ".").map(String.init)
+        guard parts.count > 2 else { return h }
+        let secondLevel = ["co", "com", "net", "org", "gov", "gob", "edu", "ac", "nic", "or", "ne", "go", "mil"]
+        let twoLevel = secondLevel.contains(parts[parts.count - 2]) && parts[parts.count - 1].count == 2
+        return parts.suffix(twoLevel ? 3 : 2).joined(separator: ".")
+    }
+
+    static func sameSite(_ a: URL?, _ b: URL?) -> Bool {
+        guard let a = a?.host(), let b = b?.host() else { return false }
+        return baseDomain(a) == baseDomain(b)
+    }
 }
