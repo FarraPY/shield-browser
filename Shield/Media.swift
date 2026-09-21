@@ -14,6 +14,16 @@ struct MediaItem: Identifiable, Hashable, Sendable {
 
     var id: String { kind.rawValue + url.absoluteString }
 
+    init(kind: Kind, url: URL, pageURL: URL?, poster: URL? = nil, isHLS: Bool) {
+        self.kind = kind
+        self.url = url
+        self.pageURL = pageURL
+        self.poster = poster
+        width = nil
+        height = nil
+        self.isHLS = isHLS || url.pathExtension.lowercased() == "m3u8"
+    }
+
     init?(_ dict: [String: Any]) {
         guard let kindString = dict["kind"] as? String, let kind = Kind(rawValue: kindString),
               let urlString = dict["url"] as? String, let url = URL(string: urlString),
@@ -50,5 +60,39 @@ struct MediaItem: Identifiable, Hashable, Sendable {
         else if !url.pathExtension.isEmpty { parts.append(url.pathExtension.uppercased()) }
         if let width, let height { parts.append("\(width)×\(height)") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Vídeo que la web intentó reproducir y que se abre en el reproductor nativo.
+struct NativeVideo: Identifiable, Sendable {
+    let id = UUID()
+    let url: URL
+    let pageURL: URL?
+    let poster: URL?
+    let title: String
+    let startTime: Double
+    let isHLS: Bool
+
+    init?(_ dict: [String: Any]) {
+        guard let s = dict["nativePlay"] as? String, let url = URL(string: s) else { return nil }
+        self.url = url
+        pageURL = (dict["page"] as? String).flatMap { URL(string: $0) }
+        poster = (dict["poster"] as? String).flatMap { URL(string: $0) }
+        title = dict["title"] as? String ?? ""
+        startTime = dict["time"] as? Double ?? 0
+        isHLS = dict["hls"] as? Bool ?? false
+    }
+
+    init(_ media: MediaItem) {
+        url = media.url
+        pageURL = media.pageURL
+        poster = media.poster
+        title = media.fileName
+        startTime = 0
+        isHLS = media.isHLS
+    }
+
+    var asMedia: MediaItem {
+        MediaItem(kind: .video, url: url, pageURL: pageURL, poster: poster, isHLS: isHLS)
     }
 }

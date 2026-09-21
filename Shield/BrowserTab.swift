@@ -18,6 +18,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     @Published var media: [MediaItem] = []
     @Published var blockedPopup: URL?
     @Published var popupsBlocked = 0
+    @Published var nativeVideo: NativeVideo?
 
     /// Lo asigna TabManager para abrir ventanas nuevas como pestañas.
     var onOpenInNewTab: ((URLRequest) -> Void)?
@@ -95,8 +96,18 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         controller.removeAllUserScripts()
         if enabled {
             for list in ContentBlocker.shared.ruleLists { controller.add(list) }
+            let flag = "window.__shieldNativePlayer = \(ShieldSettings.nativePlayer);"
+            controller.addUserScript(WKUserScript(source: flag, injectionTime: .atDocumentStart,
+                                                  forMainFrameOnly: false))
             controller.addUserScript(ContentBlocker.shared.userScript)
         }
+    }
+
+    /// Activa/desactiva el reproductor nativo en la página actual y las siguientes.
+    func setNativePlayer(_ on: Bool) {
+        webView.evaluateJavaScript("window.__shieldSetNative && window.__shieldSetNative(\(on)); 0",
+                                   completionHandler: nil)
+        applyShields(for: webView.url?.host(), force: true)
     }
 
     func toggleShieldsForCurrentSite() {
@@ -140,6 +151,9 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         }
         if let url = (body["popupBlocked"] as? String).flatMap({ URL(string: $0) }) {
             noteBlockedPopup(url)
+        }
+        if let video = NativeVideo(body) {
+            nativeVideo = video
         }
         if let list = body["media"] as? [[String: Any]] {
             addMedia(list.compactMap(MediaItem.init))

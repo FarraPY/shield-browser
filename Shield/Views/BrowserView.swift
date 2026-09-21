@@ -52,6 +52,11 @@ private struct TabContent: View {
         .sheet(isPresented: $showTabs) { TabsView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showMedia) { MediaView(tab: tab) }
+        .fullScreenCover(item: $tab.nativeVideo) { video in
+            NativePlayerView(video: video, webView: tab.webView) {
+                tab.setNativePlayer(false)
+            }
+        }
         .sheet(isPresented: $showDownloads) { NavigationStack { DownloadsView() } }
         .sheet(isPresented: $showShieldPanel) {
             ShieldPanel(tab: tab).presentationDetents([.medium])

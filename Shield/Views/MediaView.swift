@@ -30,6 +30,12 @@ struct MediaView: View {
                                     Text(item.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
+                                if item.kind == .video {
+                                    Button { play(item) } label: {
+                                        Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.orange)
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
                                 downloadButton(item)
                             }
                         }
@@ -83,6 +89,16 @@ struct MediaView: View {
                 .foregroundStyle(started.contains(item.id) ? Color.green : Color.orange)
         }
         .buttonStyle(.borderless)
+    }
+
+    /// Abre el vídeo en el reproductor del iPhone (después de cerrar este panel).
+    private func play(_ item: MediaItem) {
+        dismiss()
+        let tab = tab
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            tab.nativeVideo = NativeVideo(item)
+        }
     }
 
     private func start(_ item: MediaItem) {

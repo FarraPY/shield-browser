@@ -30,6 +30,7 @@ enum SearchEngine: String, CaseIterable, Identifiable {
 enum ShieldSettings {
     static let searchEngineKey = "searchEngine"
     static let globalShieldsKey = "globalShields"
+    static let nativePlayerKey = "nativePlayer"
     private static let disabledHostsKey = "shieldsDisabledHosts"
     private static var defaults: UserDefaults { .standard }
 
@@ -39,6 +40,10 @@ enum ShieldSettings {
 
     static var globalShields: Bool {
         defaults.object(forKey: globalShieldsKey) as? Bool ?? true
+    }
+
+    static var nativePlayer: Bool {
+        defaults.object(forKey: nativePlayerKey) as? Bool ?? true
     }
 
     static var disabledHosts: Set<String> {

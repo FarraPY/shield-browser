@@ -14,6 +14,7 @@ compilado **en la nube** (no hace falta Mac) e instalado desde **Windows**.
 | Pop-ups y pop-unders | `window.open` y enlaces `_blank` sólo se abren si tocaste un enlace visible; si no, aviso "Pop-up bloqueado · Abrir" |
 | Capas trampa invisibles | Enlaces/capas transparentes sobre imágenes que "roban" el primer toque: se desactivan y el toque pasa a la imagen de debajo |
 | Descargar cualquier vídeo o imagen | Botón ⬇︎ de la barra: detecta `<video>`, `<img>`, iframes de reproductores, listas HLS `.m3u8` (con AES-128) y peticiones de red de vídeo. Guarda en Fotos y en Archivos → Shield |
+| Reproductor del iPhone | Al pulsar play en cualquier web, el vídeo se abre en AVPlayer (con Referer/cookies de la página): botón Descargar, Picture in Picture, AirPlay. Desactivable en Ajustes o por página |
 | Escudos por sitio | Botón del escudo → desactivar en un sitio concreto (como el león de Brave) |
 | HTTPS | `upgradeKnownHostsToHTTPS` |
 | Pestañas y pestañas privadas | Las privadas usan almacenamiento no persistente |

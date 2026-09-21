@@ -273,6 +273,7 @@
   var AUDIO_EXT = /\.(mp3|m4a|aac|ogg|opus|wav|flac)(\?|#|$)/i;
   var IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif|heic|bmp)(\?|#|$)/i;
   var seen = {};
+  var lastHLS = null;   // última lista .m3u8 vista en este frame (reproductores hls.js)
   var queue = [];
   var flushTimer = null;
   function addMedia(kind, url, extra) {
@@ -283,6 +284,7 @@
     seen[key] = 1;
     var item = { kind: kind, url: url, page: location.href, hls: /\.m3u8(\?|#|$)/i.test(url) };
     if (extra) for (var k in extra) item[k] = extra[k];
+    if (item.hls) lastHLS = url;
     queue.push(item);
     if (!flushTimer) flushTimer = setTimeout(function () {
       flushTimer = null;
@@ -342,6 +344,39 @@
     }
   }
   window.__shieldScan = scan;
+
+  // ---------- Reproductor nativo del iPhone ----------
+  // Al pulsar play en un vídeo de la web se pausa y se abre en AVPlayer
+  // (con descarga, Picture in Picture y AirPlay), sea cual sea el reproductor.
+  window.__shieldSetNative = function (on) {
+    window.__shieldNativePlayer = !!on;
+    for (var i = 0; i < window.frames.length; i++) {
+      try { window.frames[i].postMessage({ __shieldNative: !!on }, '*'); } catch (e) {}
+    }
+  };
+  window.addEventListener('message', function (e) {
+    if (e.data && typeof e.data.__shieldNative === 'boolean') window.__shieldSetNative(e.data.__shieldNative);
+  });
+  function playableSource(v) {
+    var src = v.currentSrc || v.src || '';
+    if (!src || /^blob:/i.test(src)) {
+      var s = v.querySelector('source[src]');
+      src = s ? abs(s.getAttribute('src')) : '';
+    }
+    if (!src || /^blob:/i.test(src)) src = lastHLS || '';   // hls.js / MSE
+    return /^https?:/i.test(src) ? src : '';
+  }
+  document.addEventListener('play', function (e) {
+    var v = e.target;
+    if (!window.__shieldNativePlayer || !v || v.tagName !== 'VIDEO') return;
+    if (!recentTap()) return;               // sólo si lo pidió el usuario (no autoplay)
+    var src = playableSource(v);
+    if (!src) return;                       // sin URL utilizable: se queda el de la web
+    v.pause();
+    lastTap.time = 0;
+    post({ nativePlay: src, poster: v.poster ? abs(v.poster) : null, page: location.href,
+           time: v.currentTime || 0, title: document.title || '', hls: /\.m3u8(\?|#|$)/i.test(src) || src === lastHLS });
+  }, true);
   window.addEventListener('message', function (e) {
     if (e.data && e.data.__shieldScan) scan();
   });

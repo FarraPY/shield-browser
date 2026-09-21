@@ -35,6 +35,8 @@ targets:
         NSPhotoLibraryAddUsageDescription: Shield guarda en Fotos las imágenes y vídeos que descargas.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        UIBackgroundModes:
+          - audio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.emilio.shield
