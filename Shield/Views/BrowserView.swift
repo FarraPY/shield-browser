@@ -222,7 +222,7 @@ private struct ShieldPanel: View {
                 }
                 Section("En esta página") {
                     LabeledContent("Pop-ups y capas trampa bloqueados", value: "\(tab.popupsBlocked)")
-                    LabeledContent("Anuncios eliminados por script", value: "\(tab.cosmeticBlocked)")
+                    LabeledContent("Anuncios y capas flotantes eliminados", value: "\(tab.cosmeticBlocked)")
                     LabeledContent("Reglas de bloqueo cargadas", value: blocker.ruleCount.formatted())
                 }
                 Section {
@@ -232,7 +232,7 @@ private struct ShieldPanel: View {
                     }
                     .disabled(tab.url?.host() == nil || !ShieldSettings.globalShields)
                 } footer: {
-                    Text("Anuncios, rastreadores, pop-ups y banners se bloquean a nivel de red con las listas EasyList, EasyPrivacy, EasyList Español y Peter Lowe.")
+                    Text("Anuncios, rastreadores, pop-ups y banners se bloquean a nivel de red con EasyList, EasyPrivacy, EasyList Español, Peter Lowe y HaGeZi; las capas flotantes que insertan scripts de anuncios se eliminan automáticamente.")
                 }
             }
             .navigationTitle("Escudos")

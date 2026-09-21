@@ -7,7 +7,8 @@ compilado **en la nube** (no hace falta Mac) e instalado desde **Windows**.
 
 | Función | Cómo |
 |---|---|
-| Bloqueo de anuncios y rastreadores a nivel de red | `WKContentRuleList` (el mismo motor que Safari y Firefox iOS) con ~115.000 reglas de EasyList, EasyPrivacy, EasyList Español y Peter Lowe |
+| Bloqueo de anuncios y rastreadores a nivel de red | `WKContentRuleList` (el mismo motor que Safari y Firefox iOS) con ~180.000 reglas de EasyList, EasyPrivacy, EasyList Español, Peter Lowe, HaGeZi Pro y HaGeZi Pop-Up Ads (dominios rotativos de redes de pop-ups) + `tools/custom_filters.txt` |
+| Anuncios flotantes (in-page push, falsas alertas, interstitials) | Detección por comportamiento: si un script de un dominio externo desconocido cuelga del `<body>` una capa flotante, se elimina; el shadow DOM "cerrado" de las redes se fuerza a abierto |
 | Ocultación de huecos/banners | Reglas cosméticas `css-display-none` (~6.800 grupos de selectores) |
 | Anuncios de YouTube | Script inyectado que elimina `adPlacements` de las respuestas del reproductor y salta/silencia cualquier anuncio residual |
 | Pop-ups y pop-unders | `window.open` y enlaces `_blank` sólo se abren si tocaste un enlace visible; si no, aviso "Pop-up bloqueado · Abrir" |

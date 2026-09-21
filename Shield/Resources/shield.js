@@ -157,6 +157,117 @@
     if (blankAnchor(a)) post({ allowPopup: a.href });
   }, true);
 
+  // ---------- Capas flotantes insertadas por scripts de anuncios ----------
+  // "In-page push", falsas alertas del sistema, interstitials, banners pegados...
+  // Las redes cambian de dominio a diario, así que no se identifican por nombre
+  // sino por comportamiento: si un script de un dominio externo desconocido
+  // cuelga del <body> un elemento flotante (fixed / absolute con z-index alto),
+  // se elimina. Los scripts del propio sitio y de CDNs/servicios conocidos no se tocan.
+  var TRUSTED_3P = new RegExp('(^|\\.)(googleapis|gstatic|google|recaptcha|hcaptcha|cloudflare|' +
+    'jsdelivr|cdnjs|unpkg|jquery|bootstrapcdn|youtube|ytimg|vimeo|twitter|twimg|x|facebook|' +
+    'fbcdn|instagram|disqus|stripe|paypal|apple|icloud|microsoft|cookiebot|onetrust|cookielaw|' +
+    'didomi|usercentrics|quantcast|consensu|trustarc|iubenda|osano|termly|intercom|tawk|' +
+    'zendesk|crisp|freshchat|hubspot|shopify|wix|squarespace|mercadopago|mercadolibre)\\.[a-z.]+$', 'i');
+
+  function thirdPartyCaller() {
+    var lines = ((new Error()).stack || '').split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      // WebKit: "fn@https://x/y.js:1:2"  ·  Chromium: "at fn (https://x/y.js:1:2)"
+      var m = lines[i].match(/(https?:\/\/[^\s()@]+?)(?::\d+)+\)?\s*$/);
+      if (!m) continue;
+      var u = m[1];
+      if (sameSite(u)) continue;
+      var h = '';
+      try { h = new URL(u).hostname; } catch (e) { continue; }
+      if (TRUSTED_3P.test(h)) continue;
+      return u;
+    }
+    return null;
+  }
+
+  function isFloating(el) {
+    var cs = getComputedStyle(el);
+    if (cs.display === 'none') return false;
+    var z = parseInt(cs.zIndex, 10) || 0;
+    return cs.position === 'fixed' || (cs.position === 'absolute' && z >= 100);
+  }
+  function isAdLayer(el) {
+    if (isFloating(el)) return true;
+    if (el.tagName === 'IFRAME') {
+      var r = el.getBoundingClientRect();
+      return r.width * r.height > 5000 && !sameSite(el.src || '');
+    }
+    var roots = [el];
+    if (el.shadowRoot) roots.push(el.shadowRoot);
+    for (var i = 0; i < roots.length; i++) {
+      var kids = roots[i].querySelectorAll('*');
+      for (var j = 0; j < kids.length && j < 60; j++) {
+        if (isFloating(kids[j])) return true;
+      }
+    }
+    return false;
+  }
+  function judge(el) {
+    if (!el.isConnected || el.__shieldRemoved) return;
+    if (!isAdLayer(el)) return;
+    el.__shieldRemoved = true;
+    el.remove();
+    removed++;
+    report();
+    // Algunas capas bloquean el scroll de la página
+    [document.documentElement, document.body].forEach(function (n) {
+      if (n && n.style.overflow === 'hidden') n.style.overflow = '';
+    });
+  }
+  function watchInsert(parent, node) {
+    if (!node || node.nodeType !== 1 || node.__shield3p) return;
+    if (parent !== document.body && parent !== document.documentElement) return;
+    var src = thirdPartyCaller();
+    if (!src) return;
+    node.__shield3p = src;
+    [0, 250, 1000, 2500, 6000, 12000].forEach(function (ms) {
+      setTimeout(function () { judge(node); }, ms);
+    });
+  }
+  function hook(proto, name, parentOf, nodesOf) {
+    var orig = proto[name];
+    if (!orig) return;
+    proto[name] = function () {
+      try {
+        var nodes = nodesOf(arguments);
+        var parent = parentOf(this, arguments);
+        for (var i = 0; i < nodes.length; i++) watchInsert(parent, nodes[i]);
+      } catch (e) {}
+      return orig.apply(this, arguments);
+    };
+  }
+  var self = function (t) { return t; };
+  var parentNode = function (t) { return t.parentNode; };
+  var first = function (a) { return [a[0]]; };
+  var all = function (a) { return Array.prototype.slice.call(a); };
+  hook(Node.prototype, 'appendChild', self, first);
+  hook(Node.prototype, 'insertBefore', self, first);
+  hook(Node.prototype, 'replaceChild', self, first);
+  hook(Element.prototype, 'append', self, all);
+  hook(Element.prototype, 'prepend', self, all);
+  hook(Element.prototype, 'before', parentNode, all);
+  hook(Element.prototype, 'after', parentNode, all);
+  hook(Element.prototype, 'insertAdjacentElement', function (t, a) {
+    return /^(beforebegin|afterend)$/i.test(a[0]) ? t.parentNode : t;
+  }, function (a) { return [a[1]]; });
+
+  // Las redes esconden sus anuncios en shadow DOM "cerrado" para que los
+  // bloqueadores no los vean: si lo pide un script externo, se abre.
+  var nativeAttachShadow = Element.prototype.attachShadow;
+  if (nativeAttachShadow) {
+    Element.prototype.attachShadow = function (init) {
+      if (init && init.mode === 'closed' && thirdPartyCaller()) {
+        init = { mode: 'open', delegatesFocus: !!init.delegatesFocus };
+      }
+      return nativeAttachShadow.call(this, init);
+    };
+  }
+
   // ---------- Detector de vídeos, audios e imágenes ----------
   var VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|m3u8)(\?|#|$)/i;
   var AUDIO_EXT = /\.(mp3|m4a|aac|ogg|opus|wav|flac)(\?|#|$)/i;

@@ -24,7 +24,12 @@ LISTS = {
     "easyprivacy": "https://easylist.to/easylist/easyprivacy.txt",
     "easylist_es": "https://easylist-downloads.adblockplus.org/easylistspanish.txt",
     "peterlowe": "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext",
+    # Dominios rotativos de redes de pop-ups/in-page push (se actualizan a diario)
+    "hagezi_pro": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt",
+    "hagezi_popup": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/popupads.txt",
 }
+CUSTOM = ROOT / "tools" / "custom_filters.txt"
+PLAIN_DOMAIN = re.compile(r"^\|\|([a-z0-9][a-z0-9.-]*\.[a-z0-9-]+)\^$")
 
 MAX_RULES = 40000          # WebKit admite 150k por lista; usamos trozos más pequeños
 SELECTORS_PER_RULE = 150   # selectores CSS agrupados por regla css-display-none
@@ -181,6 +186,7 @@ def valid_selector(sel):
 
 def convert(lines_by_list):
     blocks, exceptions = [], []
+    plain_domains = set()   # reglas "||dominio^" sin opciones (la mayoría)
     generic = {}            # selector -> set(dominios de excepción)
     specific = {}           # (tuple(if-domain)) -> [selectores]
     generic_exc = []        # (domains, selector)
@@ -213,6 +219,10 @@ def convert(lines_by_list):
             if re.search(r"#[?$%@]#|#\+js|\$\$|#\^", line):
                 stats["skipped"] += 1  # scriptlets / filtros HTML / avanzados
                 continue
+            m = PLAIN_DOMAIN.match(line.lower())
+            if m:
+                plain_domains.add(m.group(1))
+                continue
             r = parse_network(line)
             if r is None:
                 stats["skipped"] += 1
@@ -237,6 +247,14 @@ def convert(lines_by_list):
         for i in range(0, len(sels), SELECTORS_PER_RULE):
             css.append({"trigger": {"url-filter": ".*", "if-domain": list(doms)},
                         "action": {"type": "css-display-none", "selector": ", ".join(sels[i:i + SELECTORS_PER_RULE])}})
+
+    # Dominios: se omiten subdominios si el dominio padre ya está bloqueado
+    def redundant(d):
+        parts = d.split(".")
+        return any(".".join(parts[i:]) in plain_domains for i in range(1, len(parts) - 1))
+    kept = sorted(d for d in plain_domains if not redundant(d))
+    stats["domains"] = len(kept)
+    blocks = [parse_network(f"||{d}^")[1] for d in kept] + blocks
 
     # Deduplicar bloqueos
     seen, uniq = set(), []
@@ -275,6 +293,8 @@ def main():
     ap.add_argument("--offline", action="store_true")
     args = ap.parse_args()
     lists = [fetch(n, u, args.offline) for n, u in LISTS.items()]
+    if CUSTOM.exists():
+        lists.append(CUSTOM.read_text(encoding="utf-8").splitlines())
     blocks, exceptions, css, stats = convert(lists)
     files = write_chunks(blocks, exceptions, css)
     print(json.dumps(stats), file=sys.stderr)

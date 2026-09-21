@@ -1,0 +1,25 @@
+! Shield: firmas de URL de redes de anuncios con dominios rotativos.
+! Sintaxis Adblock Plus. Se añaden a las listas públicas en cada compilación.
+!
+! Adsterra / Galaksion (popunder, social bar, in-page push)
+/fret/meow$script,third-party
+! Monetag / PropellerAds (in-page push, vignette, onclick)
+/4/js/$script,third-party
+/pfe/current/tag.min.js$script,third-party
+! "ABNS" (loader con lista de dominios de reserva)
+/libs/e.js$script,third-party
+! Varios pop-under con nombres de archivo fijos
+/ujsnetworkx.js$script,third-party
+/yjsnetworkx.js$script,third-party
+/s/adp1v3.js$script,third-party
+! Dominios vistos en hispasexy.org (21/09/2026)
+||pecannerous.com^
+||sleeklyyallaer.com^
+||aj2532.bid^
+||diagramjawlineunhappy.com^
+||traffmovie.com^
+||adcdnx.com^
+||diclotrans.com^
+||premiumvertising.com^
+||ktntdbxqjmbqp.com^
+||jlujxipdixrw.com^

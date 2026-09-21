@@ -33,7 +33,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Escudos")
                 } footer: {
-                    Text("Listas: EasyList, EasyPrivacy, EasyList Español, Peter Lowe. Se actualizan en cada compilación de la app.")
+                    Text("Listas: EasyList, EasyPrivacy, EasyList Español, Peter Lowe, HaGeZi Pro y HaGeZi Pop-Up Ads. Se actualizan en cada compilación de la app.")
                 }
                 Section {
                     Toggle("Guardar descargas en Fotos", isOn: $autoSaveToPhotos).tint(.orange)
