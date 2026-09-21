@@ -92,7 +92,7 @@ private struct TabContent: View {
                 if addressFocused {
                     Button("Cancelar") { addressFocused = false }
                 } else {
-                    Button { tab.isLoading ? tab.stop() : tab.reload() } label: {
+                    Button { if tab.isLoading { tab.stop() } else { tab.reload() } } label: {
                         Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                             .frame(width: 28, height: 28)
                     }
