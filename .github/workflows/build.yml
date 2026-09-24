@@ -52,6 +52,18 @@ jobs:
           name: Shield-ipa
           path: Shield.ipa
 
+      - name: Publicar IPA de la pull request (descarga directa, sin zip)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: pr-${{ github.event.pull_request.number }}
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" Shield.ipa --target "${{ github.event.pull_request.head.sha }}" \
+            --prerelease --latest=false \
+            --title "Shield PR #${{ github.event.pull_request.number }} (prueba)" \
+            --notes "IPA de prueba de la PR #${{ github.event.pull_request.number }} (se reemplaza en cada compilación). Instálala con Sideloadly."
+
       - name: Publicar release descargable
         if: github.event_name != 'pull_request'
         env:

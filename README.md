@@ -62,7 +62,11 @@ cambia su formato, pueden requerir actualizar reglas/scripts.
 
 ### 3. Obtener la IPA
 Cada `git push` a `main` compila la app en GitHub Actions y publica `Shield.ipa` en la
-pestaña **Releases** del repositorio (también queda como *artifact* del workflow).
+pestaña **Releases** del repositorio (también queda como *artifact* del workflow, pero
+GitHub lo empaqueta en un .zip: mejor descárgala desde Releases).
+
+Las pull requests también se compilan: su IPA de prueba se publica como *pre-release*
+`pr-<número>` (descarga directa del `.ipa`, se reemplaza en cada compilación).
 
 ### 4. Instalar
 1. Conecta el iPhone por USB y pulsa **Confiar** en el iPhone.

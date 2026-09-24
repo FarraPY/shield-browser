@@ -26,8 +26,16 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     @Published var blockedPopup: URL?
     @Published var popupsBlocked = 0
     @Published var nativeVideo: NativeVideo? {
-        didSet { updatePlayerFrame() }
+        didSet {
+            // Una sola reproducción a la vez: la anterior se para siempre.
+            if oldValue?.id != nativeVideo?.id {
+                playback?.stop()
+                playback = nativeVideo.map { NativePlayback(video: $0, webView: webView) }
+            }
+            updatePlayerFrame()
+        }
     }
+    private(set) var playback: NativePlayback?
     @Published private(set) var snapshot: UIImage?
     let playerPlacement = PlayerPlacement()
 

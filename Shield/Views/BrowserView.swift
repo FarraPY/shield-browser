@@ -36,9 +36,9 @@ private struct TabContent: View {
                 ZStack(alignment: .top) {
                     ZStack(alignment: .topLeading) {
                         WebViewContainer(webView: tab.webView)
-                        if let video = tab.nativeVideo {
-                            InlinePlayerOverlay(video: video, tab: tab, placement: tab.playerPlacement)
-                                .id(video.id)
+                        if let playback = tab.playback {
+                            InlinePlayerOverlay(playback: playback, tab: tab, placement: tab.playerPlacement)
+                                .id(playback.video.id)
                         }
                     }
                     .ignoresSafeArea(edges: .top)
