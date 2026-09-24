@@ -11,10 +11,16 @@ compilado **en la nube** (no hace falta Mac) e instalado desde **Windows**.
 | Anuncios flotantes (in-page push, falsas alertas, interstitials) | Detección por comportamiento: si un script de un dominio externo desconocido cuelga del `<body>` una capa flotante, se elimina; el shadow DOM "cerrado" de las redes se fuerza a abierto |
 | Ocultación de huecos/banners | Reglas cosméticas `css-display-none` (~6.800 grupos de selectores) |
 | Anuncios de YouTube | Script inyectado que elimina `adPlacements` de las respuestas del reproductor y salta/silencia cualquier anuncio residual |
-| Pop-ups y pop-unders | `window.open` y enlaces `_blank` sólo se abren si tocaste un enlace visible; si no, aviso "Pop-up bloqueado · Abrir" |
+| Pop-ups y pop-unders | `window.open` y enlaces `_blank` sólo se abren si tocaste un enlace visible, y en la **misma pestaña** (se vuelve con el gesto atrás). El resto se bloquea en silencio: contador y "Abrir" en el panel del escudo. Los enlaces que abren una ventana en blanco (`about:blank`) y luego le ponen la dirección se abren igualmente si los tocaste tú |
 | Capas trampa invisibles | Enlaces/capas transparentes sobre imágenes que "roban" el primer toque: se desactivan y el toque pasa a la imagen de debajo |
 | Descargar cualquier vídeo o imagen | Botón ⬇︎ de la barra: detecta `<video>`, `<img>`, iframes de reproductores, listas HLS `.m3u8` (con AES-128) y peticiones de red de vídeo. Guarda en Fotos y en Archivos → Shield |
-| Reproductor del iPhone | Al pulsar play en cualquier web, el vídeo se abre en AVPlayer (con Referer/cookies de la página): botón Descargar, Picture in Picture, AirPlay. Desactivable en Ajustes o por página |
+| Reproductor del iPhone | Al pulsar play en cualquier web, el vídeo se reproduce en AVPlayer **en el mismo sitio de la página** (sigue al desplazarte; con Referer/cookies de la página): botón Descargar, Picture in Picture, AirPlay y pantalla completa. Se cierra con ✕ o deslizando desde el borde izquierdo. Desactivable en Ajustes o por página |
+| Vídeos "congelados" | Si el reproductor de la web no arranca porque se bloqueó su SDK de anuncios (Google IMA), se sustituye por uno vacío que dice "no hay anuncios"; y si al tocar un vídeo nadie lo inicia, se muestran los controles del sistema y se reproduce |
+| Descargas de archivos | Enlaces con `Content-Disposition: attachment` (también desde iframes, p. ej. MediaFire), `<a download>` y archivos generados en la página (`blob:`/`data:`, p. ej. MEGA). Aviso "Descargando… · Ver" |
+| Barra de direcciones | Al tocarla se selecciona toda la dirección (escribir la reemplaza) y tiene botón ✕. Sugiere búsquedas anteriores y páginas del historial. Deslizarla a los lados cambia de pestaña |
+| Historial | Menú ⋯ → Historial: agrupado por día, con buscador y borrado (las pestañas privadas no se guardan) |
+| Pinch-to-zoom | Funciona en todas las webs, aunque la página lo intente impedir |
+| Pestañas | Cuadrícula con miniaturas, normales/privadas por separado; mantener pulsado un enlace → "Abrir en pestaña nueva". Deslizar desde el borde izquierdo en una página sin historial atrás cierra la pestaña con aviso "Deshacer" |
 | Escudos por sitio | Botón del escudo → desactivar en un sitio concreto (como el león de Brave) |
 | HTTPS | `upgradeKnownHostsToHTTPS` |
 | Pestañas y pestañas privadas | Las privadas usan almacenamiento no persistente |
@@ -56,7 +62,11 @@ cambia su formato, pueden requerir actualizar reglas/scripts.
 
 ### 3. Obtener la IPA
 Cada `git push` a `main` compila la app en GitHub Actions y publica `Shield.ipa` en la
-pestaña **Releases** del repositorio (también queda como *artifact* del workflow).
+pestaña **Releases** del repositorio (también queda como *artifact* del workflow, pero
+GitHub lo empaqueta en un .zip: mejor descárgala desde Releases).
+
+Las pull requests también se compilan: su IPA de prueba se publica como *pre-release*
+`pr-<número>` (descarga directa del `.ipa`, se reemplaza en cada compilación).
 
 ### 4. Instalar
 1. Conecta el iPhone por USB y pulsa **Confiar** en el iPhone.

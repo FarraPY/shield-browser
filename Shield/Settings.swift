@@ -79,6 +79,16 @@ enum URLBuilder {
     static func url(from input: String) -> URL? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
+        return directURL(text) ?? ShieldSettings.searchEngine.searchURL(text)
+    }
+
+    /// true si lo escrito se buscará en el buscador (no es una dirección).
+    static func isSearch(_ input: String) -> Bool {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !text.isEmpty && directURL(text) == nil
+    }
+
+    private static func directURL(_ text: String) -> URL? {
         if let url = URL(string: text), let scheme = url.scheme?.lowercased(),
            ["http", "https", "about", "file"].contains(scheme) {
             return url
@@ -87,7 +97,7 @@ enum URLBuilder {
         if looksLikeHost, let url = URL(string: "https://" + text), url.host() != nil {
             return url
         }
-        return ShieldSettings.searchEngine.searchURL(text)
+        return nil
     }
 
     /// Dominio registrable aproximado: "img.foro.com.ar" → "foro.com.ar".
