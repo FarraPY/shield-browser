@@ -32,8 +32,11 @@
     return p.slice(twoLevel ? -3 : -2).join('.');
   }
   function sameSite(u) {
-    try { return baseDomain(new URL(u, location.href).hostname) === baseDomain(location.hostname); }
-    catch (e) { return false; }
+    try {
+      var x = new URL(u, location.href);
+      if (x.protocol === 'blob:') x = new URL(x.pathname);   // blob:https://sitio/uuid
+      return baseDomain(x.hostname) === baseDomain(location.hostname);
+    } catch (e) { return false; }
   }
 
   // ---------- Pop-ups, pop-unders y capas invisibles ----------
@@ -114,12 +117,55 @@
     return w;
   }
 
+  // ¿El toque fue sobre un control que navega por JavaScript (botón, enlace "#")?
+  function jsControl(el) {
+    var c = el && el.closest ? el.closest('a,button,[role=button],[onclick],input[type=button],input[type=submit]') : null;
+    if (!c) return false;
+    if (c.tagName !== 'A') return true;
+    var href = (c.getAttribute('href') || '').trim();
+    return !href || href.charAt(0) === '#' || /^javascript:/i.test(href);
+  }
+
+  // Patrón típico de enlaces: window.open('') / 'about:blank' y después
+  // w.location = destino (o document.write con un meta refresh). Se devuelve
+  // una ventana "diferida": cuando la web fija el destino, si el usuario tocó
+  // ese enlace de verdad se abre en esta misma pestaña; si no, se bloquea.
+  function deferredWindow() {
+    var tap = { link: lastTap.link, js: jsControl(lastTap.target), time: Date.now() };
+    var w = fakeWindow();
+    var done = false;
+    function go(target) {
+      var u = abs(target);
+      if (done || !u || /^(about|javascript):/i.test(u)) return;
+      done = true;
+      var intended = tap.link ? (tap.link === u || tap.js) : tap.js;
+      if (intended && Date.now() - tap.time < 8000) {
+        if (window === window.top) post({ openHere: u });
+        else post({ popupBlocked: u });
+      } else {
+        post({ popupBlocked: u });
+      }
+    }
+    var loc = { assign: go, replace: go, reload: function () {}, toString: function () { return 'about:blank'; } };
+    Object.defineProperty(loc, 'href', { get: function () { return 'about:blank'; }, set: go });
+    Object.defineProperty(w, 'location', { get: function () { return loc; }, set: go });
+    w.document.write = w.document.writeln = function (html) {
+      var m = /url\s*=\s*['"]?([^'">\s]+)/i.exec(String(html || ''));
+      if (m) go(m[1]);
+    };
+    return w;
+  }
+
   var nativeOpen = window.open;
   window.open = function (url) {
     var u = url ? abs(url) : '';
     if (popupAllowed(u)) {
       post({ allowPopup: u });
       return nativeOpen.apply(window, arguments);
+    }
+    if ((!u || u === 'about:blank') && recentTap() && lastTap.target &&
+        !isOverlay((lastTap.target.closest && lastTap.target.closest('a[href]')) || lastTap.target)) {
+      return deferredWindow();
     }
     blockPopup(u);
     return fakeWindow();   // el script cree que lo consiguió y no reintenta
@@ -374,8 +420,152 @@
     if (!src) return;                       // sin URL utilizable: se queda el de la web
     v.pause();
     lastTap.time = 0;
-    post({ nativePlay: src, poster: v.poster ? abs(v.poster) : null, page: location.href,
-           time: v.currentTime || 0, title: document.title || '', hls: /\.m3u8(\?|#|$)/i.test(src) || src === lastHLS });
+    var r = v.getBoundingClientRect();
+    sendNativePlay({ nativePlay: src, poster: v.poster ? abs(v.poster) : null, page: location.href,
+           time: v.currentTime || 0, title: document.title || '', hls: /\.m3u8(\?|#|$)/i.test(src) || src === lastHLS },
+           [r.left, r.top, r.width, r.height]);
+  }, true);
+
+  // La posición del vídeo sube de iframe en iframe hasta la página principal,
+  // que la pasa a coordenadas del documento para colocar ahí el reproductor.
+  function sendNativePlay(msg, rect) {
+    if (window === window.top) {
+      if (rect) msg.rect = [rect[0] + scrollX, rect[1] + scrollY, rect[2], rect[3]];
+      post(msg);
+      return;
+    }
+    try { window.parent.postMessage({ __shieldPlay: msg, rect: rect }, '*'); }
+    catch (e) { post(msg); }
+  }
+  window.addEventListener('message', function (e) {
+    if (!e.data || !e.data.__shieldPlay) return;
+    var rect = e.data.rect, frame = null;
+    var frames = document.querySelectorAll('iframe, frame');
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow === e.source) { frame = frames[i]; break; }
+    }
+    if (frame && rect) {
+      var fr = frame.getBoundingClientRect();
+      rect = [rect[0] + fr.left + frame.clientLeft, rect[1] + fr.top + frame.clientTop, rect[2], rect[3]];
+    } else {
+      rect = null;
+    }
+    sendNativePlay(e.data.__shieldPlay, rect);
+  });
+
+  // ---------- Vídeos sin botón de play ----------
+  // Si al bloquear anuncios el reproductor de la web no llega a iniciarse, el
+  // vídeo se queda como una foto. Al tocarlo, si nadie lo arranca, se muestran
+  // los controles del sistema y se reproduce.
+  function videoAt(x, y) {
+    var list = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
+    for (var i = 0; i < list.length; i++) if (list[i].tagName === 'VIDEO') return list[i];
+    var vids = document.querySelectorAll('video');
+    for (var j = 0; j < vids.length; j++) {
+      var r = vids[j].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return vids[j];
+    }
+    return null;
+  }
+  document.addEventListener('playing', function (e) {
+    if (e.target && e.target.tagName === 'VIDEO') e.target.__shieldStarted = true;
+  }, true);
+  document.addEventListener('click', function (e) {
+    var v = videoAt(e.clientX, e.clientY);
+    if (!v || !v.paused || v.__shieldStarted) return;
+    var link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (link && !jsControl(link)) return;
+    setTimeout(function () {
+      if (!v.isConnected || !v.paused || v.__shieldStarted) return;
+      if (!v.currentSrc && !v.getAttribute('src') && !v.querySelector('source[src]')) return;
+      if (!v.controls) v.setAttribute('controls', '');
+      try { var p = v.play(); if (p && p.catch) p.catch(function () {}); } catch (err) {}
+    }, 500);
+  }, true);
+
+  // ---------- SDK de anuncios de vídeo (Google IMA) ----------
+  // Muchos reproductores esperan a que cargue ima3.js antes de mostrar el vídeo.
+  // Si el bloqueador lo impide, se sustituye por uno vacío que responde "no hay
+  // anuncios" y el reproductor pasa directamente al contenido.
+  function installImaStub() {
+    var g = window.google = window.google || {};
+    if (g.ima && g.ima.AdsLoader) return;
+    var noop = function () {};
+    function Emitter() { this.__l = {}; }
+    Emitter.prototype.addEventListener = function (types, fn, capture, ctx) {
+      types = [].concat(types);
+      for (var i = 0; i < types.length; i++) {
+        (this.__l[types[i]] = this.__l[types[i]] || []).push(ctx ? fn.bind(ctx) : fn);
+      }
+    };
+    Emitter.prototype.removeEventListener = noop;
+    Emitter.prototype.__emit = function (type, ev) {
+      var l = (this.__l[type] || []).slice();
+      for (var i = 0; i < l.length; i++) { try { l[i](ev); } catch (e) {} }
+    };
+    function types(names) {
+      var o = {};
+      names.split(' ').forEach(function (n) { o[n] = n.toLowerCase(); });
+      return o;
+    }
+    function AdError() {}
+    AdError.prototype = {
+      getErrorCode: function () { return 1009; }, getVastErrorCode: function () { return 303; },
+      getMessage: function () { return 'No ads'; }, getType: function () { return 'adLoadError'; },
+      getInnerError: function () { return null; }, toString: function () { return 'AdError 1009: No ads'; }
+    };
+    AdError.ErrorCode = { VAST_EMPTY_RESPONSE: 1009, UNKNOWN_ERROR: 900 };
+    AdError.Type = { AD_LOAD: 'adLoadError', AD_PLAY: 'adPlayError' };
+    function AdErrorEvent(ctx) { this.ctx = ctx; this.type = 'adError'; }
+    AdErrorEvent.prototype = {
+      getError: function () { return new AdError(); },
+      getUserRequestContext: function () { return this.ctx || {}; }
+    };
+    AdErrorEvent.Type = { AD_ERROR: 'adError' };
+    var settings = new Proxy({ VpaidMode: { DISABLED: 0, ENABLED: 1, INSECURE: 2 },
+      getLocale: function () { return 'es'; }, getNumRedirects: function () { return 4; },
+      getPlayerType: function () { return ''; }, getPlayerVersion: function () { return ''; },
+      getDisableCustomPlaybackForIOS10Plus: function () { return false; } },
+      { get: function (t, k) { return k in t ? t[k] : noop; } });
+    function AdsLoader() { Emitter.call(this); }
+    AdsLoader.prototype = Object.create(Emitter.prototype);
+    AdsLoader.prototype.requestAds = function (req, ctx) {
+      var self = this;
+      setTimeout(function () { self.__emit('adError', new AdErrorEvent(ctx)); }, 0);
+    };
+    AdsLoader.prototype.getSettings = function () { return settings; };
+    AdsLoader.prototype.contentComplete = noop;
+    AdsLoader.prototype.destroy = noop;
+    AdsLoader.prototype.getVersion = function () { return '3.0'; };
+    function Plain() {}
+    g.ima = {
+      VERSION: '3.0', settings: settings, ImaSdkSettings: function () { return settings; },
+      AdDisplayContainer: function () { this.initialize = noop; this.destroy = noop; },
+      AdsLoader: AdsLoader, AdsRequest: Plain, AdsRenderingSettings: Plain,
+      AdError: AdError, AdErrorEvent: AdErrorEvent,
+      AdsManagerLoadedEvent: { Type: { ADS_MANAGER_LOADED: 'adsManagerLoaded' } },
+      AdEvent: { Type: types('AD_BREAK_READY AD_BUFFERING AD_CAN_PLAY AD_METADATA AD_PROGRESS ' +
+        'ALL_ADS_COMPLETED CLICK COMPLETE CONTENT_PAUSE_REQUESTED CONTENT_RESUME_REQUESTED ' +
+        'DURATION_CHANGE FIRST_QUARTILE IMPRESSION INTERACTION LINEAR_CHANGED LOADED LOG MIDPOINT ' +
+        'PAUSED RESUMED SKIPPABLE_STATE_CHANGED SKIPPED STARTED THIRD_QUARTILE USER_CLOSE ' +
+        'VIDEO_CLICKED VIDEO_ICON_CLICKED VOLUME_CHANGED VOLUME_MUTED') },
+      ViewMode: { NORMAL: 'normal', FULLSCREEN: 'fullscreen' },
+      UiElements: { AD_ATTRIBUTION: 'adAttribution', COUNTDOWN: 'countdown' },
+      CompanionAdSelectionSettings: Plain, OmidAccessMode: { LIMITED: 'limited', DOMAIN: 'domain', FULL: 'full' },
+      OmidVerificationVendor: {}, UniversalAdIdInfo: Plain
+    };
+    g.ima.CompanionAdSelectionSettings.CreativeType = { ALL: 'All', FLASH: 'Flash', IMAGE: 'Image' };
+    g.ima.CompanionAdSelectionSettings.ResourceType = { ALL: 'All', HTML: 'Html', IFRAME: 'IFrame', STATIC: 'Static' };
+    g.ima.CompanionAdSelectionSettings.SizeCriteria = { IGNORE: 'IgnoreSize', SELECT_EXACT_MATCH: 'SelectExactMatch', SELECT_NEAR_MATCH: 'SelectNearMatch' };
+  }
+  // Un <script> que falla dispara "error" sin burbujear: se captura en window
+  // antes que el onerror del reproductor, se instala el sustituto y se simula "load".
+  window.addEventListener('error', function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'SCRIPT' || !/imasdk\.googleapis\.com\/js\/sdkloader\/ima3(_debug)?\.js/i.test(t.src || '')) return;
+    installImaStub();
+    e.stopImmediatePropagation();
+    setTimeout(function () { t.dispatchEvent(new Event('load')); }, 0);
   }, true);
   window.addEventListener('message', function (e) {
     if (e.data && e.data.__shieldScan) scan();

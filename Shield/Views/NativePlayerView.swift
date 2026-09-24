@@ -2,83 +2,137 @@ import AVKit
 import SwiftUI
 import WebKit
 
+/// Coloca el reproductor del iPhone justo encima del vídeo de la web (se
+/// desplaza con la página). Si no se conoce la posición, aparece centrado.
+struct InlinePlayerOverlay: View {
+    let video: NativeVideo
+    @ObservedObject var tab: BrowserTab
+    @ObservedObject var placement: PlayerPlacement
+
+    var body: some View {
+        GeometryReader { geo in
+            let frame = resolvedFrame(in: geo.size)
+            NativePlayerView(video: video, webView: tab.webView, onClose: close) {
+                tab.setNativePlayer(false)
+                close()
+            }
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
+        }
+        .ignoresSafeArea()
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    private func close() {
+        withAnimation(.easeOut(duration: 0.15)) { tab.nativeVideo = nil }
+    }
+
+    private func resolvedFrame(in size: CGSize) -> CGRect {
+        if var frame = placement.frame, frame.width >= 140, size.width > 0 {
+            // Vídeos casi planos (reproductores que aún no han calculado su altura).
+            if frame.height < 90 { frame.size.height = frame.width * 9 / 16 }
+            return frame
+        }
+        let width = size.width
+        let height = min(width * 9 / 16, size.height)
+        return CGRect(x: 0, y: (size.height - height) / 2, width: width, height: height)
+    }
+}
+
 /// Reproductor del iPhone (AVPlayer) para cualquier vídeo de la web, con
 /// descarga, Picture in Picture y AirPlay. Se envían el Referer, el User-Agent
 /// y las cookies de la página para que el servidor acepte la petición.
 struct NativePlayerView: View {
     let video: NativeVideo
     let webView: WKWebView
+    var onClose: () -> Void
     var onUseWebPlayer: () -> Void = {}
 
-    @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var downloadStarted = false
     @State private var failure: String?
     @State private var statusObservation: NSKeyValueObservation?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.down").font(.title3.bold())
-                }
-                Text(video.title.isEmpty ? (video.url.host() ?? "Vídeo") : video.title)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Menu {
-                    Button { startDownload() } label: {
-                        Label("Descargar vídeo", systemImage: "arrow.down.circle")
-                    }
-                    ShareLink(item: video.url) { Label("Compartir enlace del vídeo", systemImage: "link") }
-                    Divider()
-                    Button {
-                        onUseWebPlayer()
-                        dismiss()
-                    } label: {
-                        Label("Usar el reproductor de la web", systemImage: "globe")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle").font(.title3)
-                }
-                Button { startDownload() } label: {
-                    Image(systemName: downloadStarted ? "checkmark.circle.fill" : "arrow.down.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(downloadStarted ? Color.green : Color.orange)
-                }
-                .disabled(downloadStarted)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-
+        ZStack(alignment: .topTrailing) {
             ZStack {
+                Color.black
                 if let player {
                     PlayerController(player: player)
                 } else if failure == nil {
                     ProgressView().tint(.white)
                 }
                 if let failure {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle").font(.largeTitle)
-                        Text(failure).multilineTextAlignment(.center)
-                        Button("Descargar de todos modos") { startDownload() }
-                            .buttonStyle(.borderedProminent).tint(.orange)
+                    VStack(spacing: 8) {
+                        Text(failure).font(.footnote).multilineTextAlignment(.center)
+                        HStack {
+                            Button("Descargar") { startDownload() }
+                                .buttonStyle(.borderedProminent).tint(.orange)
+                            Button("Reproductor de la web") { onUseWebPlayer() }
+                                .buttonStyle(.bordered).tint(.white)
+                        }
+                        .font(.footnote)
                     }
                     .foregroundStyle(.white)
-                    .padding()
+                    .padding(8)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+            // Controles propios: descargar, más opciones y cerrar.
+            HStack(spacing: 14) {
+                Button { startDownload() } label: {
+                    Image(systemName: downloadStarted ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                        .foregroundStyle(downloadStarted ? Color.green : Color.orange)
+                }
+                .disabled(downloadStarted)
+                .accessibilityLabel("Descargar vídeo")
+                Menu {
+                    Button { startDownload() } label: {
+                        Label("Descargar vídeo", systemImage: "arrow.down.circle")
+                    }
+                    ShareLink(item: video.url) { Label("Compartir enlace del vídeo", systemImage: "link") }
+                    Divider()
+                    Button { onUseWebPlayer() } label: {
+                        Label("Usar el reproductor de la web", systemImage: "globe")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                Button { onClose() } label: { Image(systemName: "xmark.circle.fill") }
+                    .accessibilityLabel("Cerrar reproductor")
+            }
+            .font(.title3)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.45), in: Capsule())
+            .padding(6)
+        }
+        .overlay(alignment: .bottom) {
             if downloadStarted {
-                Text("Descargando… lo verás en Descargas y en Fotos")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.vertical, 8)
+                Text("Descargando… lo verás en Descargas")
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.5), in: Capsule())
+                    .padding(.bottom, 50)
+                    .allowsHitTesting(false)
             }
         }
-        .background(Color.black.ignoresSafeArea())
+        // Gesto de "volver" desde el borde izquierdo: cierra el reproductor.
+        .overlay(alignment: .leading) {
+            Color.clear
+                .frame(width: 22)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 15)
+                        .onEnded { value in
+                            if value.translation.width > 50 { onClose() }
+                        }
+                )
+        }
+        .clipped()
         .task { await load() }
         .onDisappear { player?.pause() }
     }

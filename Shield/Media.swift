@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Vídeo, audio o imagen detectado en la página por shield.js.
@@ -72,6 +73,8 @@ struct NativeVideo: Identifiable, Sendable {
     let title: String
     let startTime: Double
     let isHLS: Bool
+    /// Posición del vídeo en la página (px CSS, coordenadas del documento).
+    var pageRect: CGRect?
 
     init?(_ dict: [String: Any]) {
         guard let s = dict["nativePlay"] as? String, let url = URL(string: s) else { return nil }
@@ -81,6 +84,9 @@ struct NativeVideo: Identifiable, Sendable {
         title = dict["title"] as? String ?? ""
         startTime = dict["time"] as? Double ?? 0
         isHLS = dict["hls"] as? Bool ?? false
+        if let r = dict["rect"] as? [Double], r.count == 4, r[2] > 0, r[3] > 0 {
+            pageRect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+        }
     }
 
     init(_ media: MediaItem) {

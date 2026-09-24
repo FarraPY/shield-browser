@@ -3,6 +3,7 @@ name: Build iOS app
 on:
   push:
     branches: [main]
+  pull_request:          # compila los cambios propuestos (sin publicar release)
   workflow_dispatch:
   schedule:
     - cron: "0 6 * * 1"   # cada lunes: recompila con las listas de filtros más recientes
@@ -52,6 +53,7 @@ jobs:
           path: Shield.ipa
 
       - name: Publicar release descargable
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

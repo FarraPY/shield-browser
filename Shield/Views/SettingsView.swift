@@ -51,6 +51,7 @@ struct SettingsView: View {
                 }
                 Section("Privacidad") {
                     Button("Borrar historial, cookies y caché", role: .destructive) {
+                        HistoryStore.shared.clear()
                         WKWebsiteDataStore.default().removeData(
                             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
                             modifiedSince: .distantPast) { cleared = true }
